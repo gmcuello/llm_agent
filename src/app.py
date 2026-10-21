@@ -247,7 +247,7 @@ def ejecutar_codigo_pandas(codigo_pandas: str) -> str:
 # ==========================================
 if __name__ == "__main__":
     # Prueba del lazo integrado
-    consulta = "¿cuántos pozos ves?"  # "¿Q ué diagnósticos o estados reporta el equipo PBE.Nq.RN-1049?"
+    consulta = "¿cuántos pozos con secciones comunicadas ves?"  # "¿Q ué diagnósticos o estados reporta el equipo PBE.Nq.RN-1049?"
     respuesta_operador = ejecutar_agente_scada(consulta)
 
     print("\n==================================")

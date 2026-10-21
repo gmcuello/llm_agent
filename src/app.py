@@ -1,8 +1,8 @@
 import requests
-import json
 import pandas as pd
 import numpy as np
 import re
+import os
 
 from utils.LOGGING import log  # Importar el módulo de logging
 from utils.CONFIGS import app_config as cfgs  # Importar cfgs para el nombre del log
@@ -12,11 +12,21 @@ API_DIAGNOSTICS_URL = cfgs.API_DIAGNOSTICS_URL #  "http://127.0.0.1:5052/api/v1/
 # Obtener una instancia del logger para este módulo
 logger = log.getLogger(log.NAME_LOG)
 
-def fetch_from_api():
+
+# Puedes mover este flag y la ruta a tu archivo utils/CONFIGS.py
+DEVELOP_MODE = True
+MOCK_FILE = "diagnosticos_mock.pkl"
+
+def fetch_from_api(develop: bool = DEVELOP_MODE) -> pd.DataFrame:
     """
-    Solicita los datos a la API y retorna un DataFrame tabular completo
-    con todas las propiedades de cada equipo a partir de la lista de diagnósticos.
+    Solicita los datos a la API o lee el DataFrame serializado si develop=True.
     """
+    # 1. Modo Desarrollo: Intentar leer el binario local
+    if develop and os.path.exists(MOCK_FILE):
+        logger.info(f"[DEVELOP] Leyendo DataFrame serializado desde {MOCK_FILE}")
+        return pd.read_pickle(MOCK_FILE)
+
+    # 2. Lógica real de la API
     try:
         url = f"{cfgs.API_SERVER}:{cfgs.API_PORT}{cfgs.API_PREFIX}/diagnosticos?domain=integrity"
         logger.info(f"DEBUG URL: >{url}<")
@@ -24,7 +34,6 @@ def fetch_from_api():
         response = requests.get(url, timeout=30)
         response.raise_for_status()
 
-        # Parsear el JSON de la respuesta de la API Gateway
         data = response.json()
         diagnostics_list = data.get("diagnostics", [])
 
@@ -32,10 +41,15 @@ def fetch_from_api():
             logger.warning("La API respondió, pero la lista de diagnósticos está vacía.")
             return pd.DataFrame()
 
-        # Convertir directamente la lista de diccionarios en un DataFrame tabular
         df = pd.DataFrame(diagnostics_list)
 
+        # 3. Guardar el archivo para la próxima ejecución offline
+        if develop:
+            df.to_pickle(MOCK_FILE)
+            logger.info(f"[DEVELOP] DataFrame serializado y guardado en {MOCK_FILE}")
+
         return df
+
     except Exception as e:
         logger.error(f"Error en fetch_from_api: {e}")
         return pd.DataFrame()
@@ -97,7 +111,10 @@ def llamar_llm(prompt_completo: str, modelo: str = "gemma4") -> str:
         "model": modelo,
         "prompt": prompt_completo,
         "stream": False,
-        "stop": ["Observación:"]  # Corta la generación aquí
+        # CRÍTICO: Ollama requiere que 'stop' esté dentro de 'options'
+        "options": {
+            "stop": ["Observación:", "Observacion:", "Observación:\n"]
+        }
     }
 
     try:
@@ -114,9 +131,16 @@ def llamar_llm(prompt_completo: str, modelo: str = "gemma4") -> str:
 def ejecutar_agente_scada(pregunta_usuario: str, max_iteraciones: int = 5):
     # 1. Definimos las herramientas disponibles usando el formato exacto de LangChain
     herramientas_desc = """
-    filtrar_datos_vivaldi: Ejecuta un filtro sobre el DataFrame de diagnósticos en memoria. Recibe como argumento UNICAMENTE un string válido para pandas df.query(). Por ejemplo: equip_name == 'YPF.Nq.LLL-278'
-    """
-    nombres_herramientas = "filtrar_datos_vivaldi"
+        1. filtrar_datos_vivaldi: Úsala para extraer filas usando df.query() (ej. estado == 'Falla').
+
+        2. ejecutar_codigo_pandas: Úsala para realizar agrupaciones (groupby), conteos avanzados, promedios, máximos, mínimos o extraer top N. 
+        - El DataFrame se llama 'df'.
+        - El argumento DEBE ser una expresión de código Python en una sola línea.
+        - Ejemplo para promedio: df['presion_psi'].mean()
+        - Ejemplo para conteo por grupo: df.groupby('estado').size()
+        - Ejemplo para buscar el máximo: df.nlargest(5, 'temperatura')
+        """
+    nombres_herramientas = "filtrar_datos_vivaldi, ejecutar_codigo_pandas"
 
     # 2. El Prompt ReAct clásico que mencionaste
     prompt_base = f"""Responde a las siguientes preguntas lo mejor que puedas. Tienes acceso a las siguientes herramientas:
@@ -149,6 +173,10 @@ Pensamiento: """
         # Llamada a Ollama
         texto_generado = llamar_llm(historial)
 
+        # 2. BARRERA DEFENSIVA: Si el modelo logró alucinar la observación, la borramos.
+        if "Observación:" in texto_generado:
+            texto_generado = texto_generado.split("Observación:")[0]
+
         # Imprimimos lo que el modelo generó para depurar
         print(f"\n[Salida del LLM]:\n{texto_generado}\n")
 
@@ -170,6 +198,9 @@ Pensamiento: """
 
             if herramienta == "filtrar_datos_vivaldi":
                 resultado_real = filtrar_datos_vivaldi(argumento)
+            elif herramienta == "ejecutar_codigo_pandas":
+                print("  [Sistema] Ejecutando operación nativa de Pandas...")
+                resultado_real = ejecutar_codigo_pandas(argumento)
             else:
                 resultado_real = f"Error: La herramienta {herramienta} no existe."
 
@@ -183,6 +214,33 @@ Pensamiento: """
 
     return "No pude resolver la consulta."
 
+
+def ejecutar_codigo_pandas(codigo_pandas: str) -> str:
+    """
+    Permite al LLM ejecutar operaciones complejas de Pandas directamente sobre el df.
+    """
+    try:
+        # 1. Obtenemos el DataFrame actualizado de Vivaldi
+        df = fetch_from_api()
+
+        # 2. Sanitizamos un poco la entrada por si el LLM pone comillas extra
+        codigo_limpio = codigo_pandas.strip("`'\"")
+
+        # 3. Entorno de ejecución restringido (sandbox)
+        entorno_global = {"pd": pd, "np": np}
+        entorno_local = {"df": df}
+
+        # 4. Ejecutamos la expresión (Ej: df.groupby('estado').size())
+        resultado = eval(codigo_limpio, entorno_global, entorno_local)
+
+        # 5. Formateamos el resultado para devolvérselo al LLM
+        if isinstance(resultado, pd.Series) or isinstance(resultado, pd.DataFrame):
+            return resultado.to_string()
+        else:
+            return str(resultado)
+
+    except Exception as e:
+        return f"Error en la sintaxis de Pandas: {str(e)}"
 
 # ==========================================
 # PUNTO DE ENTRADA

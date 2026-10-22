@@ -16,7 +16,7 @@ logger = log.getLogger(log.NAME_LOG)
 
 
 # Puedes mover este flag y la ruta a tu archivo utils/CONFIGS.py
-DEVELOP_MODE = False
+DEVELOP_MODE = True
 MOCK_FILE = "diagnosticos_mock.pkl"
 
 def fetch_from_api(develop: bool = DEVELOP_MODE) -> pd.DataFrame:
@@ -49,7 +49,9 @@ def fetch_from_api(develop: bool = DEVELOP_MODE) -> pd.DataFrame:
         # ==========================================
         # CAPA DE CIBERSEGURIDAD: OFUSCACIÓN DE DATOS
         # ==========================================
-        if develop and 'equip_name' in df.columns:
+        if develop and ('equip_name' in df.columns
+                        or 'target_server' in df.columns)\
+                or 'graph_url' in df.columns:
             def ofuscar_nombre(nombre):
                 if pd.isna(nombre):
                     return nombre
@@ -61,6 +63,14 @@ def fetch_from_api(develop: bool = DEVELOP_MODE) -> pd.DataFrame:
             df['equip_name'] = df['equip_name'].apply(ofuscar_nombre)
             df['target_server'] = df['target_server'].apply(ofuscar_nombre)
             df['graph_url'] = df['graph_url'].apply(ofuscar_nombre)
+            df['uwi'] = df['uwi'].apply(ofuscar_nombre)
+            df['oh_lvl_1'] = df['oh_lvl_1'].apply(ofuscar_nombre)
+            df['oh_lvl_2'] = df['oh_lvl_2'].apply(ofuscar_nombre)
+            df['oh_lvl_3'] = df['oh_lvl_3'].apply(ofuscar_nombre)
+            df['oh_lvl_4'] = df['oh_lvl_4'].apply(ofuscar_nombre)
+            df['oh_lvl_5'] = df['oh_lvl_5'].apply(ofuscar_nombre)
+            df['api_nro'] = df['api_nro'].apply(ofuscar_nombre)
+            df['completacion_id'] = df['completacion_id'].apply(ofuscar_nombre)
             logger.info("[DEVELOP] Nombres de equipos ofuscados por seguridad.")
 
         # 3. Guardar el archivo para la próxima ejecución offline
@@ -148,17 +158,17 @@ def ejecutar_agente_scada(pregunta_usuario: str, max_iteraciones: int = 5):
             * 'equip_name': nombre del equipo o pozo (ej. 'YPF.Nq.LLL-256')
             * 'analyzer_id':  nombre del analizador que generó el status.
             * 'target_server':  servidor PI AF desde donde se leen los datos.
-            * 'last_updated':  timestamp de última actialización del status.
+            * 'last_updated':  timestamp de última actualización del status.
             * 'status': código del estado.
             * 'explanation': explicación que fundamenta el por qué del código de estado, basado en los analisis previos.
             * 'graph_url':  path y nombre del archivo con el grafico complementario que soporta al código de estado.
             * 'uwi':  unique well identifier del pozo.
-            * 'oh_lvl_1':  
-            * 'oh_lvl_2':  
-            * 'oh_lvl_3': 
-            * 'oh_lvl_4':  
-            * 'oh_lvl_5':  
-            * 'api_nro':  
+            * 'oh_lvl_1': nivel jerarquico 1. 1 es el de mayor nivel
+            * 'oh_lvl_2': nivel jerarquico 2
+            * 'oh_lvl_3': nivel jerarquico 3
+            * 'oh_lvl_4': nivel jerarquico 4
+            * 'oh_lvl_5': nivel jerarquico 5
+            * 'api_nro':  unique well identifier del pozo.
             * 'completacion_id': id de la completación del pozo.
             * 'fecha_efectiva_dt':  fecha del control del pozo.
             * 'control_petroleo_m3_val':  control del petróleo del pozo.
@@ -315,7 +325,9 @@ def ejecutar_codigo_pandas(codigo_pandas: str) -> str:
 # ==========================================
 if __name__ == "__main__":
     # Prueba del lazo integrado
-    consulta = "¿Qué diagnósticos o estados reporta el pozo PBE.Nq.RN-1049?"
+    consulta = "Dame el nombre de las columnas donde falten datos en el dataframe"
+    df = fetch_from_api()
+
     respuesta_operador = ejecutar_agente_scada(consulta)
 
     print("\n==================================")

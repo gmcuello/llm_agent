@@ -57,6 +57,8 @@ def getLogger(name):
     :rtype: object
 
     """
+    ini_log(logger_name=NAME_LOG, logfile=FILE_LOG, path=PATH_LOG)
+    return logging.getLogger(name)
     return logging.getLogger(name=name)
 
 def ini_log(

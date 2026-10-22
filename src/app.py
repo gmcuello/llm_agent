@@ -1,3 +1,5 @@
+import hashlib
+
 import requests
 import pandas as pd
 import numpy as np
@@ -14,16 +16,17 @@ logger = log.getLogger(log.NAME_LOG)
 
 
 # Puedes mover este flag y la ruta a tu archivo utils/CONFIGS.py
-DEVELOP_MODE = True
+DEVELOP_MODE = False
 MOCK_FILE = "diagnosticos_mock.pkl"
 
 def fetch_from_api(develop: bool = DEVELOP_MODE) -> pd.DataFrame:
     """
-    Solicita los datos a la API o lee el DataFrame serializado si develop=True.
+    Solicita los datos a la API, ofusca nombres sensibles en desarrollo,
+    o lee el DataFrame serializado si develop=True.
     """
-    # 1. Modo Desarrollo: Intentar leer el binario local
+    # 1. Modo Desarrollo: Intentar leer el binario local (que ya estará ofuscado)
     if develop and os.path.exists(MOCK_FILE):
-        logger.info(f"[DEVELOP] Leyendo DataFrame serializado desde {MOCK_FILE}")
+        logger.info(f"[DEVELOP] Leyendo DataFrame ofuscado desde {MOCK_FILE}")
         return pd.read_pickle(MOCK_FILE)
 
     # 2. Lógica real de la API
@@ -43,6 +46,23 @@ def fetch_from_api(develop: bool = DEVELOP_MODE) -> pd.DataFrame:
 
         df = pd.DataFrame(diagnostics_list)
 
+        # ==========================================
+        # CAPA DE CIBERSEGURIDAD: OFUSCACIÓN DE DATOS
+        # ==========================================
+        if develop and 'equip_name' in df.columns:
+            def ofuscar_nombre(nombre):
+                if pd.isna(nombre):
+                    return nombre
+                # Crea un hash MD5 determinista y toma los primeros 5 caracteres
+                hash_corto = hashlib.md5(str(nombre).encode('utf-8')).hexdigest()[:5].upper()
+                return f"MOCK.PZ-{hash_corto}"
+
+            # Aplicamos la ofuscación a toda las columnas sensibles
+            df['equip_name'] = df['equip_name'].apply(ofuscar_nombre)
+            df['target_server'] = df['target_server'].apply(ofuscar_nombre)
+            df['graph_url'] = df['graph_url'].apply(ofuscar_nombre)
+            logger.info("[DEVELOP] Nombres de equipos ofuscados por seguridad.")
+
         # 3. Guardar el archivo para la próxima ejecución offline
         if develop:
             df.to_pickle(MOCK_FILE)
@@ -53,7 +73,6 @@ def fetch_from_api(develop: bool = DEVELOP_MODE) -> pd.DataFrame:
     except Exception as e:
         logger.error(f"Error en fetch_from_api: {e}")
         return pd.DataFrame()
-
 
 def filtrar_datos_vivaldi(query_pandas: str) -> str:
     """
@@ -91,12 +110,6 @@ def filtrar_datos_vivaldi(query_pandas: str) -> str:
     except Exception as e:
         return f"Error al procesar el filtro en Pandas: {str(e)}"
 
-
-
-
-
-# (Tus importaciones existentes de requests, json, pandas, etc.)
-
 # ==========================================
 # 1. CLIENTE DEL LLM (OLLAMA LOCAL)
 # ==========================================
@@ -124,16 +137,72 @@ def llamar_llm(prompt_completo: str, modelo: str = "gemma4") -> str:
     except Exception as e:
         return f"Error conectando con Ollama: {str(e)}"
 
-
 # ==========================================
 # 2. EL ORQUESTADOR REACT (BUCLE WHILE)
 # ==========================================
 def ejecutar_agente_scada(pregunta_usuario: str, max_iteraciones: int = 5):
     # 1. Definimos las herramientas disponibles usando el formato exacto de LangChain
     herramientas_desc = """
+        METADATOS DEL DATAFRAME df (ESQUEMA):
+        - Columnas disponibles:
+            * 'equip_name': nombre del equipo o pozo (ej. 'YPF.Nq.LLL-256')
+            * 'analyzer_id':  nombre del analizador que generó el status.
+            * 'target_server':  servidor PI AF desde donde se leen los datos.
+            * 'last_updated':  timestamp de última actialización del status.
+            * 'status': código del estado.
+            * 'explanation': explicación que fundamenta el por qué del código de estado, basado en los analisis previos.
+            * 'graph_url':  path y nombre del archivo con el grafico complementario que soporta al código de estado.
+            * 'uwi':  unique well identifier del pozo.
+            * 'oh_lvl_1':  
+            * 'oh_lvl_2':  
+            * 'oh_lvl_3': 
+            * 'oh_lvl_4':  
+            * 'oh_lvl_5':  
+            * 'api_nro':  
+            * 'completacion_id': id de la completación del pozo.
+            * 'fecha_efectiva_dt':  fecha del control del pozo.
+            * 'control_petroleo_m3_val':  control del petróleo del pozo.
+            * 'control_agua_m3_val': control del agua del pozo.
+            * 'control_gas_m3_val':  control del gas del pozo.
+            * 'tamano_orificio_val':  tamaño del orificio del pozo (aplica a metodo de producción surgente).
+            * 'proposito_control_cd': código de propósito del control.
+            * 'vol_potencial_petroleo_m3_num':  potencioal de petróleo del pozo.
+            * 'vol_potencial_gas_m3_num': potencioal de gas del pozo.
+            * 'fecha_potencial_dt':  fecha de cálculo del potencioal del pozo.
+            * 'metodo_produccion_historico_cd': código del método de producción del pozo.
+            * 'metodo_produccion_desc':  descripción del método de producción.
+            * 'riesgo_pozo':  riesgo de integridad del pozo (ej. Riesgo 0, Riesgo 1). Riesgo 0 es el mayor riesgo.
+            * 'fecha_ejecucion: timestamp del cálculo del riesgo.
+        - Diccionario de Status Codes:
+            `FSM_NO_COMM`: No comunica.
+            `FSM_NOT_POSSIBLE`: Análisis no fue posible (cuando no se dispone de ninguna señal para el análisis).
+            * en cuanto a calidad de Datos:
+                `FSM_SA_SB_SC_BAD_DATA`: Todas las señales presentan error de datos.
+                `FSM_Sx_BAD_DATA`: los datos de la sección  x no se disponible. x puede ser: A, B o C.
+                `FSM_Sx_Sy_BAD_DATA`: los datos de las secciones x e y no se disponibles.  x puede ser: A, B o C. y puede ser: A, B o C.
+            * en cuanto a Presurización, secciones presurizadas:
+                `FSM_SA_SB_SC_PRESSURIZED`: todas las secciones están presurizadas.
+                `FSM_Sx_Sy_PRESSURIZED`: la seccion x y la seccion y están presurizadas. x puede ser: A, B o C. y puede ser: A, B o C.
+                `FSM_Sx_PRESSURIZED`: la sección x esta presurizada. x puede ser: A, B o C.
+            * en cuanto a incrementos o decrementos de presión
+                `FSM_Sx_INCREASE`: la sección x está incrementando presión. x puede ser: A, B o C.
+                `FSM_Sx_Sy_INCREASE`: las secciones x e y están incrementando presión. x puede ser: A, B o C. y puede ser: A, B o C. 
+                `FSM_SA_SB_SC_INCREASE`: las tres secciones están incrementando presión.
+                `FSM_Sx_DECREASE`: la sección x está decrementando presión. x puede ser: A, B o C.
+                `FSM_Sx_Sy_DECREASE`: las secciones x e y están decrementando presión. x puede ser: A, B o C. y puede ser: A, B o C. 
+                `FSM_SA_SB_SC_DECREASE`: las tres secciones están decrementando presión.
+            * En cuanto a secciones comunicadas
+                `FSM_SA_SB_SC_CONNECTED`: las tres secciones están comunicadas. 
+                `FSM_Sx_Sy_CONNECTED`: la sección x está comunicada con la sección y. x puede ser: A, B o C. y puede ser: A, B o C. 
+            * En cuanto a efecto térmico
+                `FSM_SA_SB_SC_THERMAL_DAILY`: las tres secciones presentan efecto térmico. 
+                `FSM_Sx_Sy_THERMAL_DAILY`: las secciones x e y presentan efecto térmico. x puede ser: A, B o C. y puede ser: A, B o C. 
+                `FSM_Sx_THERMAL_DAILY`: la sección x presenta efecto térmico. x puede ser: A, B o C.
+    
         1. filtrar_datos_vivaldi: Úsala para extraer filas usando df.query() (ej. estado == 'Falla').
 
         2. ejecutar_codigo_pandas: Úsala para realizar agrupaciones (groupby), conteos avanzados, promedios, máximos, mínimos o extraer top N. 
+               
         - El DataFrame se llama 'df'.
         - El argumento DEBE ser una expresión de código Python en una sola línea.
         - Ejemplo para promedio: df['presion_psi'].mean()
@@ -214,7 +283,6 @@ Pensamiento: """
 
     return "No pude resolver la consulta."
 
-
 def ejecutar_codigo_pandas(codigo_pandas: str) -> str:
     """
     Permite al LLM ejecutar operaciones complejas de Pandas directamente sobre el df.
@@ -247,7 +315,7 @@ def ejecutar_codigo_pandas(codigo_pandas: str) -> str:
 # ==========================================
 if __name__ == "__main__":
     # Prueba del lazo integrado
-    consulta = "¿cuántos pozos con secciones comunicadas ves?"  # "¿Q ué diagnósticos o estados reporta el equipo PBE.Nq.RN-1049?"
+    consulta = "¿Qué diagnósticos o estados reporta el pozo PBE.Nq.RN-1049?"
     respuesta_operador = ejecutar_agente_scada(consulta)
 
     print("\n==================================")

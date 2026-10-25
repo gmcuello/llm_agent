@@ -121,28 +121,103 @@ def ejecutar_codigo_pandas(codigo_pandas: str) -> str:
 # ==========================================
 # ESQUEMA Y PROMPTS PARA LOS AGENTES
 # ==========================================
+HERRAMIENTAS = """    
+        1. filtrar_datos_vivaldi: Úsala para extraer filas usando df.query() (ej. estado == 'Falla'). El argumento solo debe ser el argumento y no el string completo ("df.query(argumento)")
+        Por la descripcion del schema vas a leer Sx o Sy. En ese caso, deberas generar todas las posibilidades: SA, SB, SC para ellos. Si estan Sx y Sy juntos, A,B o C no se repiten. Indica un par de posibles SA,SB o SB, SC 
+
+        2. ejecutar_codigo_pandas: Úsala para realizar agrupaciones (groupby), conteos avanzados, promedios, máximos, mínimos o extraer top N. 
+               
+        - El DataFrame se llama 'df'.
+        - El argumento DEBE ser una expresión de código Python en una sola línea.
+        - Ejemplo para promedio: df['presion_psi'].mean()
+        - Ejemplo para conteo por grupo: df.groupby('estado').size()
+        - Ejemplo para buscar el máximo: df.nlargest(5, 'temperatura')
+        """
+
+nombres_herramientas = "filtrar_datos_vivaldi, ejecutar_codigo_pandas"
+
 SCHEMA_DATAFRAME = """
 METADATOS DEL DATAFRAME df (ESQUEMA):
-- Columnas disponibles:
-    * 'equip_name', 'analyzer_id', 'target_server', 'last_updated', 'status', 'explanation', 'graph_url', 'uwi', 'oh_lvl_1', 'oh_lvl_2', 'oh_lvl_3', 'oh_lvl_4', 'oh_lvl_5', 'api_nro', 'completacion_id', 'fecha_efectiva_dt', 'control_petroleo_m3_val', 'control_agua_m3_val', 'control_gas_m3_val', 'tamano_orificio_val', 'proposito_control_cd', 'vol_potencial_petroleo_m3_num', 'vol_potencial_gas_m3_num', 'fecha_potencial_dt', 'metodo_produccion_historico_cd', 'metodo_produccion_desc', 'riesgo_pozo', 'fecha_ejecucion'
-- Diccionario de Status Codes:
-    `FSM_NO_COMM`: No comunica.
-    `FSM_NOT_POSSIBLE`: Análisis no fue posible.
-    * Calidad de Datos: `FSM_SA_SB_SC_BAD_DATA`, `FSM_Sx_BAD_DATA`, `FSM_Sx_Sy_BAD_DATA`.
-    * Presurización: `FSM_SA_SB_SC_PRESSURIZED`, `FSM_Sx_Sy_PRESSURIZED`, `FSM_Sx_PRESSURIZED`.
-    * Incrementos/Decrementos de presión: `FSM_Sx_INCREASE`, `FSM_SA_SB_SC_INCREASE`, `FSM_Sx_DECREASE`, etc.
-    * Secciones comunicadas: `FSM_SA_SB_SC_CONNECTED`, `FSM_Sx_Sy_CONNECTED`.
-    * Efecto térmico: `FSM_SA_SB_SC_THERMAL_DAILY`, `FSM_Sx_Sy_THERMAL_DAILY`, `FSM_Sx_THERMAL_DAILY`.
+        - Columnas disponibles:
+            * 'equip_name': nombre del equipo o pozo (ej. 'YPF.Nq.LLL-256')
+            * 'analyzer_id':  nombre del analizador que generó el status.
+            * 'target_server':  servidor PI AF desde donde se leen los datos.
+            * 'last_updated':  timestamp de última actualización del status.
+            * 'status': código del estado.
+            * 'explanation': explicación que fundamenta el por qué del código de estado, basado en los analisis previos.
+            * 'graph_url':  path y nombre del archivo con el grafico complementario que soporta al código de estado.
+            * 'uwi':  unique well identifier del pozo.
+            * 'oh_lvl_1': nivel jerarquico 1. 1 es el de mayor nivel
+            * 'oh_lvl_2': nivel jerarquico 2
+            * 'oh_lvl_3': nivel jerarquico 3
+            * 'oh_lvl_4': nivel jerarquico 4
+            * 'oh_lvl_5': nivel jerarquico 5
+            * 'api_nro':  unique well identifier del pozo.
+            * 'completacion_id': id de la completación del pozo.
+            * 'fecha_efectiva_dt':  fecha del control del pozo.
+            * 'control_petroleo_m3_val':  control del petróleo del pozo.
+            * 'control_agua_m3_val': control del agua del pozo.
+            * 'control_gas_m3_val':  control del gas del pozo.
+            * 'tamano_orificio_val':  tamaño del orificio del pozo (aplica a metodo de producción surgente).
+            * 'proposito_control_cd': código de propósito del control.
+            * 'vol_potencial_petroleo_m3_num':  potencioal de petróleo del pozo.
+            * 'vol_potencial_gas_m3_num': potencioal de gas del pozo.
+            * 'fecha_potencial_dt':  fecha de cálculo del potencioal del pozo.
+            * 'metodo_produccion_historico_cd': código del método de producción del pozo.
+            * 'metodo_produccion_desc':  descripción del método de producción.
+            * 'riesgo_pozo':  riesgo de integridad del pozo (ej. Riesgo 0, Riesgo 1). Riesgo 0 es el mayor riesgo.
+            * 'fecha_ejecucion: timestamp del cálculo del riesgo.
+        - Diccionario de Status Codes:
+            `FSM_NO_COMM`: No comunica.
+            `FSM_NOT_POSSIBLE`: Análisis no fue posible (cuando no se dispone de ninguna señal para el análisis).
+            * en cuanto a calidad de Datos:
+                `FSM_SA_SB_SC_BAD_DATA`: Todas las señales presentan error de datos.
+                `FSM_Sx_BAD_DATA`: los datos de la sección  x no se disponible. x puede ser: A, B o C.
+                `FSM_Sx_Sy_BAD_DATA`: los datos de las secciones x e y no se disponibles.  x puede ser: A, B o C. y puede ser: A, B o C.
+            * en cuanto a Presurización, secciones presurizadas:
+                `FSM_SA_SB_SC_PRESSURIZED`: todas las secciones están presurizadas.
+                `FSM_Sx_Sy_PRESSURIZED`: la seccion x y la seccion y están presurizadas. x puede ser: A, B o C. y puede ser: A, B o C.
+                `FSM_Sx_PRESSURIZED`: la sección x esta presurizada. x puede ser: A, B o C.
+            * en cuanto a incrementos o decrementos de presión
+                `FSM_Sx_INCREASE`: la sección x está incrementando presión. x puede ser: A, B o C.
+                `FSM_Sx_Sy_INCREASE`: las secciones x e y están incrementando presión. x puede ser: A, B o C. y puede ser: A, B o C. 
+                `FSM_SA_SB_SC_INCREASE`: las tres secciones están incrementando presión.
+                `FSM_Sx_DECREASE`: la sección x está decrementando presión. x puede ser: A, B o C.
+                `FSM_Sx_Sy_DECREASE`: las secciones x e y están decrementando presión. x puede ser: A, B o C. y puede ser: A, B o C. 
+                `FSM_SA_SB_SC_DECREASE`: las tres secciones están decrementando presión.
+            * En cuanto a secciones comunicadas
+                `FSM_SA_SB_SC_CONNECTED`: las tres secciones están comunicadas. 
+                `FSM_Sx_Sy_CONNECTED`: la sección x está comunicada con la sección y. x puede ser: A, B o C. y puede ser: A, B o C. 
+            * En cuanto a efecto térmico
+                `FSM_SA_SB_SC_THERMAL_DAILY`: las tres secciones presentan efecto térmico. 
+                `FSM_Sx_Sy_THERMAL_DAILY`: las secciones x e y presentan efecto térmico. x puede ser: A, B o C. y puede ser: A, B o C. 
+                `FSM_Sx_THERMAL_DAILY`: la sección x presenta efecto térmico. x puede ser: A, B o C."""
 
-Herramientas disponibles y REGLAS:
-1. filtrar_datos_vivaldi: Úsala para extraer filas usando df.query().
-2. ejecutar_codigo_pandas: Úsala para realizar agrupaciones (groupby), conteos avanzados, promedios o máximos. El argumento DEBE ser código Python en una sola línea (ej. df.groupby('status').size()).
+PROMPT_TELEMETRIA = f"""Responde a las siguientes preguntas lo mejor que puedas. Tienes acceso a las siguientes herramientas:
+
+{HERRAMIENTAS}
+El nombre de las herramientas es:
+{nombres_herramientas}
+
+y el esquema de datos del dataframe df es:
+
+{SCHEMA_DATAFRAME}.
+
+Para interactuar, debes usar el siguiente formato de manera estricta:
+
+Pregunta: la pregunta de entrada que debes resolver
+Pensamiento: siempre debes explicar en qué estás pensando y qué vas a hacer a continuación
+Acción: la acción que vas a tomar. Debe ser excluyentemente una de la lista: [{nombres_herramientas}]
+Entrada de la Acción: los parámetros o argumentos que requiere la acción
+Observación: el resultado devuelto por la acción ejecutada
+... (este ciclo Pensamiento/Acción/Entrada de la Acción/Observación puede repetirse N veces)
+Pensamiento: ahora tengo la información suficiente para dar la respuesta
+Respuesta Final: la respuesta final y consolidada a la pregunta original de entrada
+
+¡Comienza!
 """
 
-PROMPT_TELEMETRIA = f"""Responde a las siguientes preguntas lo mejor que puedas. Eres un Analista de Datos experto en telemetría SCADA.
-Tu objetivo es consultar presiones, estados operativos, o agrupar información de pozos.
 
-{SCHEMA_DATAFRAME}"""
 
 PROMPT_CALIDAD = f"""Responde a las siguientes preguntas lo mejor que puedas. Eres un Inspector estricto de Calidad de Datos (Data Quality).
 Tu objetivo es auditar fallas de datos (BAD_DATA), telemetría congelada, falta de comunicación o nulos.
@@ -154,7 +229,7 @@ Tu objetivo es auditar fallas de datos (BAD_DATA), telemetría congelada, falta 
 # EL SUPERVISOR (ENRUTADOR SEMÁNTICO)
 # ==========================================
 def clasificar_intencion(consulta: str) -> str:
-    url = "http://10.111.13.28:11434/api/generate"
+    url = "http://localhost:11434/api/generate"
     prompt_supervisor = f"""Eres el supervisor de la sala de control Vivaldi. Analiza la consulta y clasifícala.
 Responde ÚNICAMENTE con una de estas dos palabras:
 - 'CALIDAD': si la consulta trata sobre fallas de datos, BAD_DATA, errores, nulos o falta de comunicación.
@@ -186,6 +261,7 @@ Clasificación:"""
 # PUNTO DE ENTRADA
 # ==========================================
 if __name__ == "__main__":
+
     # 1. Definir el diccionario de herramientas para inyectar en los agentes
     herramientas_compartidas = {
         "filtrar_datos_vivaldi": filtrar_datos_vivaldi,

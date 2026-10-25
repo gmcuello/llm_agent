@@ -12,7 +12,7 @@ class BaseAgent:
 
     def llamar_llm(self, prompt_completo: str) -> str:
         """Comunica con el modelo local de Ollama de forma encapsulada."""
-        url = "http://10.111.13.28:11434/api/generate"
+        url = "http://localhost:11434/api/generate"
         payload = {
             "model": self.modelo,
             "prompt": prompt_completo,
@@ -35,11 +35,17 @@ class BaseAgent:
         print(f"\n[{self.nombre}] Iniciando análisis...")
 
         for i in range(max_iter):
+            print(f"--- Iteración {i + 1} ---")
+
+            # llamada a Ollama
             texto_generado = self.llamar_llm(historial)
 
             # Truncamiento defensivo
             if "Observación:" in texto_generado:
                 texto_generado = texto_generado.split("Observación:")[0]
+
+            # Imprimimos lo que el modelo generó para depurar
+            print(f"\n[Salida del LLM]:\n{texto_generado}\n")
 
             historial += texto_generado
 
@@ -57,7 +63,8 @@ class BaseAgent:
                 nombre_herramienta = match.group(1).strip()
                 argumento = match.group(2).strip()
 
-                print(f"  └─ [{self.nombre}] Usa herramienta: {nombre_herramienta}")
+                print(f"  [Parseo] Ejecutando: {nombre_herramienta}({argumento})")
+                print(f"  └─ [{self.nombre}] Ejecutando: {nombre_herramienta}({argumento})")
 
                 # Ejecución dinámica desde el diccionario de herramientas
                 funcion_actuador = self.herramientas.get(nombre_herramienta)

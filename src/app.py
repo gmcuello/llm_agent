@@ -10,6 +10,8 @@ from utils.CONFIGS import app_config as cfgs
 from base.BaseAgent import BaseAgent
 
 API_DIAGNOSTICS_URL = cfgs.API_DIAGNOSTICS_URL
+LLM_HOST = cfgs.LLM_HOST
+LLM_PORT = cfgs.LLM_PORT
 
 logger = log.getLogger(log.NAME_LOG)
 
@@ -82,10 +84,15 @@ def fetch_from_api(develop: bool = DEVELOP_MODE) -> pd.DataFrame:
         logger.error(f"Error en fetch_from_api: {e}")
         return pd.DataFrame()
 
-def filtrar_datos_vivaldi(query_pandas: str) -> str:
+def filtrar_datos_vivaldi(query_pandas: str, results_df=None) -> (str, pd.DataFrame):
     url_gateway = "http://localhost:8000/api/v1/pozos/all"
     try:
-        df = fetch_from_api()
+        # results_df puede traer resultados previamente filtrados por alguna iteracion del run_agent
+        if results_df is None:
+            df = fetch_from_api()
+        else:
+            df = results_df
+
         if query_pandas.strip().lower() in ["", "all", "todo", "1 == 1", "true"]:
             df_filtrado = df
         else:
@@ -99,23 +106,28 @@ def filtrar_datos_vivaldi(query_pandas: str) -> str:
         if cantidad > 20:
             resumen = df_filtrado.head(20).to_csv(index=False)
             return mensaje_base + f"Muestra de 20 resultados:\n{resumen}"
-        return mensaje_base + f"Datos completos:\n{df_filtrado.to_csv(index=False)}"
+        return mensaje_base + f"Datos completos:\n{df_filtrado.to_csv(index=False)}", df_filtrado
     except Exception as e:
-        return f"Error al procesar el filtro en Pandas: {str(e)}"
+        return f"Error al procesar el filtro en Pandas: {str(e)}", None
 
-def ejecutar_codigo_pandas(codigo_pandas: str) -> str:
+def ejecutar_codigo_pandas(codigo_pandas: str, results_df=None) -> (str, pd.DataFrame):
     try:
-        df = fetch_from_api()
+        # results_df puede traer resultados previamente filtrados por alguna iteracion del run_agent
+        if results_df is None:
+            df = fetch_from_api()
+        else:
+            df = results_df
+
         codigo_limpio = codigo_pandas.strip("`'\"")
         entorno_global = {"pd": pd, "np": np}
         entorno_local = {"df": df}
         resultado = eval(codigo_limpio, entorno_global, entorno_local)
         if isinstance(resultado, pd.Series) or isinstance(resultado, pd.DataFrame):
-            return resultado.to_string()
+            return resultado.to_string(), resultado
         else:
-            return str(resultado)
+            return str(resultado), resultado
     except Exception as e:
-        return f"Error en la sintaxis de Pandas: {str(e)}"
+        return f"Error en la sintaxis de Pandas: {str(e)}", None
 
 
 # ==========================================
@@ -124,7 +136,7 @@ def ejecutar_codigo_pandas(codigo_pandas: str) -> str:
 HERRAMIENTAS = """    
         1. filtrar_datos_vivaldi: Úsala para extraer filas usando df.query() (ej. estado == 'Falla'). El argumento solo debe ser el argumento y no el string completo ("df.query(argumento)")
         Por la descripcion del schema vas a leer Sx o Sy. En ese caso, deberas generar todas las posibilidades: SA, SB, SC para ellos. Si estan Sx y Sy juntos, A,B o C no se repiten. Indica un par de posibles SA,SB o SB, SC 
-
+        Cuando se pregunte por cuantos pozos estan en cierto estado, debe incluirse unique() para el equip_name.
         2. ejecutar_codigo_pandas: Úsala para realizar agrupaciones (groupby), conteos avanzados, promedios, máximos, mínimos o extraer top N. 
                
         - El DataFrame se llama 'df'.
@@ -168,30 +180,32 @@ METADATOS DEL DATAFRAME df (ESQUEMA):
             * 'riesgo_pozo':  riesgo de integridad del pozo (ej. Riesgo 0, Riesgo 1). Riesgo 0 es el mayor riesgo.
             * 'fecha_ejecucion: timestamp del cálculo del riesgo.
         - Diccionario de Status Codes:
-            `FSM_NO_COMM`: No comunica.
-            `FSM_NOT_POSSIBLE`: Análisis no fue posible (cuando no se dispone de ninguna señal para el análisis).
+             <analisis> puede figurar como: INTEGRITY_DATA, INTEGRITY_SECTIONS_CONNECTED, INTEGRITY_THERMAL_EFFECT, INTEGRITY_PRESSURE_, INTEGRITY_PRESSURE_INCREMENT_DECREMENT
+             <analisis>_NO_COMM`: No comunica.
+            `<analisis>_NOT_POSSIBLE`: Análisis no fue posible (cuando no se dispone de ninguna señal para el análisis).
+            `<analisis>_NORMAL`: Normal.
             * en cuanto a calidad de Datos:
-                `FSM_SA_SB_SC_BAD_DATA`: Todas las señales presentan error de datos.
-                `FSM_Sx_BAD_DATA`: los datos de la sección  x no se disponible. x puede ser: A, B o C.
-                `FSM_Sx_Sy_BAD_DATA`: los datos de las secciones x e y no se disponibles.  x puede ser: A, B o C. y puede ser: A, B o C.
+                `<analisis>_SA_SB_SC_BAD_DATA`: Todas las señales presentan error de datos.
+                `<analisis>_Sx_BAD_DATA`: los datos de la sección  x no se disponible. Sx puede ser: SA, SB o SC.
+                `<analisis>_Sx_Sy_BAD_DATA`: los datos de las secciones x e y no se disponibles.  Sx puede ser: SA, SB o SC. Sy puede ser: SA, SB o SC.
             * en cuanto a Presurización, secciones presurizadas:
-                `FSM_SA_SB_SC_PRESSURIZED`: todas las secciones están presurizadas.
-                `FSM_Sx_Sy_PRESSURIZED`: la seccion x y la seccion y están presurizadas. x puede ser: A, B o C. y puede ser: A, B o C.
-                `FSM_Sx_PRESSURIZED`: la sección x esta presurizada. x puede ser: A, B o C.
+                `<analisis>_SA_SB_SC_PRESSURIZED`: todas las secciones están presurizadas.
+                `<analisis>_Sx_Sy_PRESSURIZED`: la seccion x y la seccion y están presurizadas. Sx puede ser: SA, SB o SC. Sy puede ser: SA, SB o SC.
+                `<analisis>_Sx_PRESSURIZED`: la sección x esta presurizada. Sx puede ser: SA, SB o SC.
             * en cuanto a incrementos o decrementos de presión
-                `FSM_Sx_INCREASE`: la sección x está incrementando presión. x puede ser: A, B o C.
-                `FSM_Sx_Sy_INCREASE`: las secciones x e y están incrementando presión. x puede ser: A, B o C. y puede ser: A, B o C. 
-                `FSM_SA_SB_SC_INCREASE`: las tres secciones están incrementando presión.
-                `FSM_Sx_DECREASE`: la sección x está decrementando presión. x puede ser: A, B o C.
-                `FSM_Sx_Sy_DECREASE`: las secciones x e y están decrementando presión. x puede ser: A, B o C. y puede ser: A, B o C. 
-                `FSM_SA_SB_SC_DECREASE`: las tres secciones están decrementando presión.
+                `<analisis>_Sx_INCREASE`: la sección x está incrementando presión. Sx puede ser: SA, SB o SC.
+                `<analisis>_Sx_Sy_INCREASE`: las secciones x e y están incrementando presión. Sx puede ser: SA, SB o SC. Sy puede ser: SA, SB o SC. 
+                `<analisis>_SA_SB_SC_INCREASE`: las tres secciones están incrementando presión.
+                `<analisis>_Sx_DECREASE`: la sección x está decrementando presión. Sx puede ser: SA, SB o SC.
+                `<analisis>_Sx_Sy_DECREASE`: las secciones x e y están decrementando presión. Sx puede ser: SA, SB o SC. Sy puede ser: SA, SB o SC. 
+                `<analisis>_SA_SB_SC_DECREASE`: las tres secciones están decrementando presión.
             * En cuanto a secciones comunicadas
-                `FSM_SA_SB_SC_CONNECTED`: las tres secciones están comunicadas. 
-                `FSM_Sx_Sy_CONNECTED`: la sección x está comunicada con la sección y. x puede ser: A, B o C. y puede ser: A, B o C. 
+                `<analisis>_SA_SB_SC_CONNECTED`: las tres secciones están comunicadas. 
+                `<analisis>_Sx_Sy_CONNECTED`: la sección x está comunicada con la sección y. Sx puede ser: SA, SB o SC. Sy puede ser: SA, SB o SC. 
             * En cuanto a efecto térmico
-                `FSM_SA_SB_SC_THERMAL_DAILY`: las tres secciones presentan efecto térmico. 
-                `FSM_Sx_Sy_THERMAL_DAILY`: las secciones x e y presentan efecto térmico. x puede ser: A, B o C. y puede ser: A, B o C. 
-                `FSM_Sx_THERMAL_DAILY`: la sección x presenta efecto térmico. x puede ser: A, B o C."""
+                `<analisis>_SA_SB_SC_THERMAL_DAILY`: las tres secciones presentan efecto térmico. 
+                `<analisis>_Sx_Sy_THERMAL_DAILY`: las secciones x e y presentan efecto térmico. Sx puede ser: SA, SB o SC. Sy puede ser: SA, SB o SC. 
+                `<analisis>_Sx_THERMAL_DAILY`: la sección x presenta efecto térmico. Sx puede ser: SA, SB o SC."""
 
 PROMPT_TELEMETRIA = f"""Responde a las siguientes preguntas lo mejor que puedas. Tienes acceso a las siguientes herramientas:
 
@@ -229,7 +243,7 @@ Tu objetivo es auditar fallas de datos (BAD_DATA), telemetría congelada, falta 
 # EL SUPERVISOR (ENRUTADOR SEMÁNTICO)
 # ==========================================
 def clasificar_intencion(consulta: str) -> str:
-    url = "http://localhost:11434/api/generate"
+    url = f"{LLM_HOST}:{LLM_PORT}/api/generate"
     prompt_supervisor = f"""Eres el supervisor de la sala de control Vivaldi. Analiza la consulta y clasifícala.
 Responde ÚNICAMENTE con una de estas dos palabras:
 - 'CALIDAD': si la consulta trata sobre fallas de datos, BAD_DATA, errores, nulos o falta de comunicación.

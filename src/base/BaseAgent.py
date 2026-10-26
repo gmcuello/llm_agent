@@ -1,6 +1,7 @@
 import requests
 import re
 from typing import Callable, Dict, Any
+from utils.CONFIGS.app_config import LLM_HOST, LLM_PORT
 
 
 class BaseAgent:
@@ -9,10 +10,11 @@ class BaseAgent:
         self.modelo = modelo
         self.system_prompt = system_prompt
         self.herramientas = herramientas  # Diccionario { 'nombre_herramienta': funcion_python }
+        self.results_df = None
 
     def llamar_llm(self, prompt_completo: str) -> str:
         """Comunica con el modelo local de Ollama de forma encapsulada."""
-        url = "http://localhost:11434/api/generate"
+        url = f"{LLM_HOST}:{LLM_PORT}/api/generate"
         payload = {
             "model": self.modelo,
             "prompt": prompt_completo,
@@ -70,9 +72,10 @@ class BaseAgent:
                 funcion_actuador = self.herramientas.get(nombre_herramienta)
 
                 if funcion_actuador:
-                    resultado_real = funcion_actuador(argumento)
+                    resultado_real, self.results_df = funcion_actuador(argumento, self.results_df)
                 else:
                     resultado_real = f"Error: La herramienta {nombre_herramienta} no está en mi caja de herramientas."
+                    self.results_df = None
 
                 historial += f"\nObservación: {resultado_real}\nPensamiento: "
             else:

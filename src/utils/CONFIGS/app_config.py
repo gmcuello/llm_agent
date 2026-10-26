@@ -46,3 +46,9 @@ API_PREFIX = config.get(section='API_REST', option='API_PREFIX', fallback='')
 API_DIAGNOSTICS_URL = config.get(section='API_REST', option='API_DIAGNOSTICS_URL', fallback='')
 API_NOTES_URL = config.get(section='API_REST', option='API_NOTES_URL', fallback='')
 API_GRAPH_URL = config.get(section='API_REST', option='API_GRAPH_URL', fallback='')
+
+# ==========================
+# LLM SERVER (ollama)
+# ==========================
+LLM_HOST = config.get(section='LLM', option='LLM_HOST', fallback='')
+LLM_PORT = config.get(section='LLM', option='LLM_PORT', fallback='')

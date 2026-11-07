@@ -40,6 +40,7 @@ class BaseAgent:
                 
                 # Añadimos el razonamiento del modelo al historial de la conversación en memoria
                 prompt_actual += f"{respuesta_parcial}\n"
+                print(f"[Agente {self.nombre}] -> {respuesta_parcial}")
                 print(f"  [Agente {self.nombre}] -> Solicitó usar herramienta: {nombre_herramienta}")
                 
                 if nombre_herramienta in self.herramientas:

@@ -52,19 +52,21 @@ if __name__ == "__main__":
     tools = load_tools(config)
     agents = create_agents(config, tools)
 
-    consulta = sanitize_input("¿Cuántos pozos están incrementando presión?")
+    while True:
+        str_consulta = input("\nIngrese la consulta (ej. ¿Cuántos pozos están incrementando presión?):  ")
+        consulta = sanitize_input(str_consulta)
 
 
-    print(f"\n[Supervisor] Analizando consulta: '{consulta}'")
-    ruta = classify_intent(consulta)
-    print(f"[Supervisor] Decisión de enrutamiento: {ruta}")
+        print(f"\n[Supervisor] Analizando consulta: '{consulta}'")
+        ruta = classify_intent(consulta)
+        print(f"[Supervisor] Decisión de enrutamiento: {ruta}")
 
-    if ruta == "CALIDAD":
-        respuesta_operador = agents['Inspector_DQ'].ejecutar(consulta)
-    else:
-        respuesta_operador = agents['Analista_Telemetria'].ejecutar(consulta)
+        if ruta == "CALIDAD":
+            respuesta_operador = agents['Inspector_DQ'].ejecutar(consulta)
+        else:
+            respuesta_operador = agents['Analista_Telemetria'].ejecutar(consulta)
 
-    print("\n==================================")
-    print("RESPUESTA AL OPERADOR:")
-    print("==================================")
-    print(respuesta_operador)
+        print("\n==================================")
+        print("RESPUESTA AL OPERADOR:")
+        print("==================================")
+        print(respuesta_operador)

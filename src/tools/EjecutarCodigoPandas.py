@@ -25,6 +25,7 @@ class EjecutarCodigoPandas(ToolInterface):
         self.pkl_path = next((ruta for ruta in rutas_posibles if ruta.exists()), rutas_posibles[0])
         self.df_cache = None
 
+
     def _load_dataframe(self) -> pd.DataFrame:
         if self.df_cache is None:
             if self.pkl_path.exists():

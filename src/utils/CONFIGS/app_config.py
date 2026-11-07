@@ -1,23 +1,28 @@
-﻿"""
+"""
 Configuraciones para la sala de control (Frontend de Integridad)
 """
 
 import os
 import sys
 import logging
+from pathlib import Path
 from configparser import ConfigParser, ExtendedInterpolation
 
 logger = logging.getLogger()
 
-if os.path.isfile(os.getcwd() + '/APP.ini') is not True:
-    logger.error('No se encontró el archivo de configuración APP.ini en el directorio raiz')
+# Usar pathlib para resolver la ruta absoluta independientemente de dónde se ejecute el script
+BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent
+INI_PATH = BASE_DIR / 'APP.ini'
+
+if not INI_PATH.is_file():
+    logger.error(f'No se encontró el archivo de configuración APP.ini en: {INI_PATH}')
     sys.exit()
 else:
     environ_dict = dict(os.environ)
     if not 'ANROOT' in environ_dict:
-        environ_dict['ANROOT'] = os.getcwd()
+        environ_dict['ANROOT'] = str(BASE_DIR)
     config = ConfigParser(defaults=environ_dict, allow_no_value=False, interpolation=ExtendedInterpolation())
-    config.read(os.getcwd() + '/APP.ini', encoding='utf-8')
+    config.read(INI_PATH, encoding='utf-8')
 
 # =============================================================================
 # PATHS Y LOGS

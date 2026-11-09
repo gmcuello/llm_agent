@@ -1,12 +1,13 @@
 # src/app.py
 from pathlib import Path
-from base.BaseAgent import BaseAgent
+from src.base.BaseAgent import BaseAgent
 from base.config_loader import load_config
 from base.ToolInterface import ToolInterface
 from base.LLMClient import LLMClient
 from utils.sanitization import sanitize_input
 from tools.FiltrarDatosVivaldi import FiltrarDatosVivaldi
 from tools.EjecutarCodigoPandas import EjecutarCodigoPandas
+from tools.GenerarGrafico import GenerarGrafico
 
 def load_tools(config):
     tools = {}
@@ -54,8 +55,18 @@ if __name__ == "__main__":
 
     while True:
         str_consulta = input("\nIngrese la consulta (ej. ¿Cuántos pozos están incrementando presión?):  ")
-        consulta = sanitize_input(str_consulta)
 
+        # Interceptamos comandos de sistema antes de sanitizar o llamar al LLM
+        comando = str_consulta.strip().lower()
+        if comando in ['/reset', 'resetea', 'limpiar', 'clear', 'olvida', 'olvidate', ]:
+            for agente in agents.values():
+                agente.limpiar_memoria()
+            print("\n==================================")
+            print("🧠 MEMORIA DE CORTO PLAZO RESETEADA")
+            print("==================================")
+            continue  # Vuelve al inicio del bucle sin llamar al modelo
+
+        consulta = sanitize_input(str_consulta)
 
         print(f"\n[Supervisor] Analizando consulta: '{consulta}'")
         ruta = classify_intent(consulta)

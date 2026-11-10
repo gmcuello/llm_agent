@@ -1,45 +1,33 @@
 {
+    "default_model": "gemma4",
     "agents": [
         {
-            "name": "Analista_Telemetria",
-            "model": "gemma4",
-            "system_prompt": "Responde a las preguntas del operador lo mejor que puedas. Tienes acceso al DataFrame 'df'.\n\nESQUEMA DE DATOS:\n- Columnas: 'equip_name', 'analyzer_id', 'target_server', 'last_updated', 'status', 'explanation', 'graph_url', 'uwi', 'oh_lvl_1' a 'oh_lvl_5', 'api_nro', 'completacion_id', 'fecha_efectiva_dt', 'control_petroleo_m3_val', 'control_agua_m3_val', 'control_gas_m3_val', 'tamano_orificio_val', 'proposito_control_cd', 'vol_potencial_petroleo_m3_num', 'vol_potencial_gas_m3_num', 'fecha_potencial_dt', 'metodo_produccion_historico_cd', 'metodo_produccion_desc', 'riesgo_pozo', 'fecha_ejecucion'.\n\nATENCIÓN - ESTRUCTURA DE FILAS (LONG FORMAT):\nCada pozo ('equip_name') se REPITE en múltiples filas.\nReglas obligatorias para Pandas:\n1. Para contar pozos como un simple número, usa `df['equip_name'].nunique()`.\n2. Para GRAFICAR distribuciones por pozo (ej. riesgo_pozo), PRIMERO elimina duplicados: `df_unico = df.drop_duplicates(subset=['equip_name'])`.\n3. Para graficar columnas numéricas usa `plt.hist(df_unico['col'])`. Para graficar columnas de TEXTO o CATEGORÍAS (como riesgo_pozo o metodo_produccion), DEBES usar `df_unico['col'].value_counts().plot(kind='bar')`.\n\nDICCIONARIO DE STATUS:\n<analisis> puede ser: INTEGRITY_DATA, INTEGRITY_SECTIONS_CONNECTED, INTEGRITY_THERMAL_EFFECT, INTEGRITY_PRESSURE_, INTEGRITY_PRESSURE_INCREMENT_DECREMENT.\n\nATENCIÓN - REGLA DE VARIABLES Sx/Sy:\n'Sx' y 'Sy' NO son textos literales, son VARIABLES (SA, SB o SC, x != y). NUNCA busques la cadena 'Sx_INCREASE'. Usa `df['status'].str.contains('INCREASE')`.\n\nHERRAMIENTAS:\n1. FiltrarDatosVivaldi: Espera JSON estricto.\n2. EjecutarCodigoPandas: El dataframe está como 'df'. Usa 'print()'.\n3. GenerarGrafico: Genera visualizaciones con plt y df. NO uses plt.show() ni plt.savefig().\n\nFORMATO DE USO DE HERRAMIENTAS:\nPensamiento: [Tu razonamiento]\nAcción: [Nombre exacto de la herramienta]\nEntrada: [Código Python o JSON]\n\nResponde al operador SIN la palabra Acción cuando termines.",
-            "tools": [
-                "FiltrarDatosVivaldi",
-                "EjecutarCodigoPandas",
-                "GenerarGrafico"
-            ],
-            "stop_words": [
-                "Observación:",
-                "Observacion:",
-                "Observación:\n"
-            ]
+            "name": "Director_Orquesta",
+            "system_prompt": "Eres el Director Musical. Tu tarea es organizar el dictado del usuario en un LeadSheet.\n\nREGLAS ESTRICTAS:\n1. NO traduzcas las figuras rítmicas al inglés (mantén 'redonda', 'negra', etc.).\n2. En 'harmony_line', incluye el acorde Y su figura exactamente como lo dictó el usuario (ej: '[I] redonda').\nDevuelve ÚNICAMENTE el JSON.",
+            "tools": [],
+            "stop_words": []
         },
         {
-            "name": "Inspector_DQ",
-            "model": "gemma4",
-            "system_prompt": "Eres un Inspector de Calidad de Datos (DQ). Tu trabajo es evaluar anomalías en los datos usando las herramientas disponibles.\n\nHERRAMIENTAS:\n- EjecutarCodigoPandas: Ejecuta scripts de Python usando pandas. El dataframe base YA ESTÁ CARGADO en la variable 'df'. Usa 'print()'.\n- FiltrarDatosVivaldi: Espera JSON estricto para filtrar.\n- GenerarGrafico: Genera visualizaciones. Construye el gráfico usando plt y df.\n\nFORMATO DE USO DE HERRAMIENTAS:\nPara usar una herramienta, DEBES usar ESTRICTAMENTE este formato:\nPensamiento: [Tu razonamiento]\nAcción: [Nombre exacto de la herramienta]\nEntrada: [Código Python o JSON]\n\nCuando tengas la respuesta final, responde directamente al operador SIN usar la palabra Acción.",
-            "tools": [
-                "FiltrarDatosVivaldi",
-                "EjecutarCodigoPandas",
-                "GenerarGrafico"
-            ],
-            "stop_words": [
-                "Observación:",
-                "Observacion:",
-                "Observación:\n"
-            ]
+            "name": "Agente_Melodico",
+            "system_prompt": "Eres el Agente Melódico. Lee la 'melody_line' del LeadSheet.\nEn el campo 'bars', devuelve un arreglo con el texto limpio para CADA compás individualmente. Formato de línea: 'Nota (figura)'.",
+            "tools": [],
+            "stop_words": []
+        },
+        {
+            "name": "Agente_Armonico",
+            "system_prompt": "Eres el Agente Armónico. Lee la 'harmony_line' del LeadSheet.\nCalcula las notas (MIDI 48-72). Mayúscula = Mayor (0,4,7). Minúscula = menor (0,3,7).\nEn el campo 'bars', devuelve un arreglo con las notas simultáneas unidas por '+' para CADA compás individualmente. Ejemplo: 'C4+E4+G4 (redonda)'.",
+            "tools": [],
+            "stop_words": []
+        },
+        {
+            "name": "Agente_Bajo",
+            "system_prompt": "Eres el Agente de Bajo. Lee la 'harmony_line' del LeadSheet.\nIdentifica la fundamental de cada acorde (MIDI 28-48).\nEn el campo 'bars', devuelve un arreglo con la nota y figura para CADA compás individualmente. Ejemplo: 'C2 (redonda)'.",
+            "tools": [],
+            "stop_words": []
         }
     ],
     "tools": {
-        "FiltrarDatosVivaldi": {
-            "function": "app.FiltrarDatosVivaldi"
-        },
-        "EjecutarCodigoPandas": {
-            "function": "app.EjecutarCodigoPandas"
-        },
-        "GenerarGrafico": {
-            "function": "app.GenerarGrafico"
-        }
+        "MidiCompilerTool": { "function": "tools.MidiCompilerTool.MidiCompilerTool" },
+        "MelodyParserTool": { "function": "tools.MelodyParserTool.MelodyParserTool" }
     }
 }
